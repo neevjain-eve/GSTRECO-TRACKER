@@ -70,6 +70,34 @@ tr.r{cursor:pointer} tr.r:hover td{background:var(--neutral-bg)} tr.r.act td{bac
 @media (max-width:560px){.form,.cols2{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:no-preference){button{transition:border-color .12s}}
 html{color-scheme:light}[hidden]{display:none!important}body{margin:0;min-height:100vh}img{max-width:100%}
+
+/* UI pass: sticky header, status stripes, drawer, empty state */
+header{position:sticky;top:0;z-index:20;background:var(--bg);padding-block:12px;border-bottom:1px solid var(--line);margin-inline:-16px;padding-inline:16px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
+.brand{display:flex;flex-direction:column}
+.brand h1{font-size:18px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;font-size:12px}
+.tag{border-radius:99px;padding:3px 10px;background:var(--neutral-bg);color:var(--muted);font-weight:500}
+.tag.on{background:var(--ok-bg);color:var(--ok)}
+.tw{max-height:34rem;overflow:auto}
+th{position:sticky;top:0;z-index:2}
+tr.r td:first-child{border-left:4px solid var(--stripe,var(--line))}
+.st-matched,.st-matched_variance{--stripe:var(--ok)}
+.st-missing_in_2b,.st-tax_mismatch{--stripe:var(--bad)}
+.st-missing_in_books,.st-gstin_mismatch,.st-invoice_mismatch{--stripe:var(--warn)}
+.st-duplicate,.st-needs_review{--stripe:var(--info)}
+tr.r:focus-visible{outline-offset:-2px}
+.kpi small{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.chip{transition:opacity .12s}
+.chip.zero{opacity:.45}
+#scrim{position:fixed;inset:0;background:rgba(10,18,28,.45);z-index:30}
+#detail{position:fixed;top:0;right:0;bottom:0;width:min(580px,100%);z-index:40;overflow:auto;border-radius:0;border-width:0 0 0 1px;box-shadow:-14px 0 34px rgba(0,0,0,.22);padding:18px}
+@media (prefers-reduced-motion:no-preference){#detail:not([hidden]){animation:slidein .16s ease-out}@keyframes slidein{from{transform:translateX(28px);opacity:0}to{transform:none;opacity:1}}}
+.empty{text-align:center;padding:44px 18px}
+.empty h2{font-size:16px;letter-spacing:0;text-transform:none;color:var(--ink);margin:0 0 6px}
+.empty p{color:var(--muted);max-width:52ch;margin:0 auto 14px}
+.msg{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.msg.bad{border-left-color:var(--bad);background:var(--bad-bg)}
+.hint{color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -77,8 +105,8 @@ html{color-scheme:light}[hidden]{display:none!important}body{margin:0;min-height
 
 <div class="wrap">
   <header>
-    <h1>GST Reconciliation Tracker</h1>
-    <p class="sub">Match purchase bills from your books against GSTR-2B. Everything runs in this page; nothing is uploaded anywhere. Decisions are remembered in this browser only.</p>
+    <div class="brand"><h1>GST Reconciliation Tracker</h1><span class="hint">Books vs GSTR-2B · runs in your browser, nothing is uploaded</span></div>
+    <div class="tags"><span class="tag" id="tBooks">Books: 0</span><span class="tag" id="tGstr">GSTR-2B: 0</span></div>
   </header>
 
   <div id="msg" class="msg" hidden></div>
@@ -116,10 +144,16 @@ html{color-scheme:light}[hidden]{display:none!important}body{margin:0;min-height
     </div>
   </section>
 
+  <section class="panel empty" id="empty">
+    <h2>Nothing to reconcile yet</h2>
+    <p>Upload your purchase bills and the GSTR-2B file downloaded from the GST portal. Matching runs as soon as both are loaded.</p>
+    <button class="primary" id="emptySample">Load sample data</button>
+  </section>
+
   <section class="kpis" id="kpis"></section>
   <section class="row" id="chips"></section>
 
-  <section class="panel">
+  <section class="panel" id="tablePanel">
     <div class="row" style="margin-bottom:10px">
       <input id="q" placeholder="Search vendor, GSTIN, invoice…" style="flex:1 1 220px" aria-label="Search">
       <select id="fG" style="flex:0 1 210px" aria-label="Filter GSTIN"></select>
@@ -135,9 +169,10 @@ html{color-scheme:light}[hidden]{display:none!important}body{margin:0;min-height
     </div>
   </section>
 
-  <section class="panel" id="detail" hidden></section>
+  <div id="scrim" hidden></div>
+  <section class="panel" id="detail" hidden role="dialog" aria-label="Reconciliation detail"></section>
 
-  <section class="panel">
+  <section class="panel" id="reportsPanel">
     <h2>Reports (copy as CSV, paste into Excel or Sheets)</h2>
     <div class="row" id="reports"></div>
     <textarea id="out" rows="6" class="mono" style="margin-top:10px" readonly placeholder="Choose a report to preview it here."></textarea>
@@ -227,7 +262,7 @@ function parse(buf,prefix,src){
 }
 
 /* ---------- ui ---------- */
-function say(lines,bad){const m=$("msg");m.hidden=false;m.innerHTML=[].concat(lines).map((l,i)=>'<div class="'+(i?"small muted":(bad?"err":""))+'">'+esc(l)+"</div>").join("")}
+function say(lines,bad){const m=$("msg");m.hidden=false;m.className="msg"+(bad?" bad":"");m.innerHTML="<div>"+[].concat(lines).map((l,i)=>'<div class="'+(i?"small muted":(bad?"err":""))+'">'+esc(l)+"</div>").join("")+'</div><button id="msgX" class="small">Dismiss</button>';$("msgX").onclick=()=>{m.hidden=true}}
 function recompute(){results=reconcile(books,gstr);page=0;render()}
 const gDate=s=>{const m=String(s).match(/^(\d{2})-(\d{2})-(\d{4})$/);return m?m[3]+"-"+m[2]+"-"+m[1]:String(s)};
 function parseGstnJson(text){
@@ -293,10 +328,13 @@ function options(el,first,vals){const cur=el.value;el.innerHTML='<option value="
 function render(){
   const bi=books.reduce((a,b)=>a+tt(b),0),gi=gstr.reduce((a,b)=>a+tt(b),0);
   const mi=results.filter(r=>r.status==="matched"||r.status==="matched_variance").reduce((a,r)=>a+tt(r.book),0);
-  const k=[["ITC in books",bi,""],["ITC in GSTR-2B",gi,""],["Matched ITC",mi,"var(--ok)"],["Unmatched ITC",bi-mi,"var(--bad)"],["Variance (books − 2B)",bi-gi,bi-gi?"var(--warn)":""]];
-  $("kpis").innerHTML=k.map(x=>'<div class="kpi"><span>'+x[0]+'</span><b style="color:'+(x[2]||"inherit")+'">'+inr(x[1])+"</b></div>").join("");
+  const k=[["ITC in books",bi,"",books.length+" bills"],["ITC in GSTR-2B",gi,"",gstr.length+" records"],["Matched ITC",mi,"var(--ok)",(bi>0?Math.round(mi/bi*100):0)+"% of books"],["Unmatched ITC",bi-mi,bi-mi>0?"var(--bad)":"","to follow up"],["Variance (books − 2B)",bi-gi,bi-gi?"var(--warn)":"","excess claimed vs 2B"]];
+  $("kpis").innerHTML=k.map(x=>'<div class="kpi"><span>'+x[0]+'</span><b style="color:'+(x[2]||"inherit")+'">'+inr(x[1])+"</b><small>"+x[3]+"</small></div>").join("");
+  const has=books.length+gstr.length>0;
+  ["kpis","chips","tablePanel","reportsPanel"].forEach(i=>$(i).hidden=!has);$("empty").hidden=has;
+  $("tBooks").textContent="Books: "+books.length;$("tGstr").textContent="GSTR-2B: "+gstr.length;$("tBooks").classList.toggle("on",books.length>0);$("tGstr").classList.toggle("on",gstr.length>0);
   const cnt={};results.forEach(r=>cnt[r.status]=(cnt[r.status]||0)+1);
-  $("chips").innerHTML=Object.keys(STAT).map(s=>'<button class="chip s-'+s+(statusF===s?" sel":"")+'" data-s="'+s+'">'+STAT[s]+": "+(cnt[s]||0)+"</button>").join("");
+  $("chips").innerHTML=Object.keys(STAT).map(s=>'<button class="chip s-'+s+(statusF===s?" sel":"")+((cnt[s]||0)?"":" zero")+'" data-s="'+s+'">'+STAT[s]+": "+(cnt[s]||0)+"</button>").join("");
   $("chips").querySelectorAll("button").forEach(b=>b.onclick=()=>{statusF=statusF===b.dataset.s?"":b.dataset.s;page=0;render()});
   options($("fG"),"All GSTINs",[...new Set(results.map(r=>dd(r).gstin))].sort());
   options($("fM"),"All months",[...new Set(results.map(r=>dd(r).date.slice(0,7)))].sort());
@@ -305,9 +343,9 @@ function render(){
   $("thead").querySelectorAll("th.sort").forEach(t=>t.onclick=()=>{const kk=t.dataset.k;sort=sort.k===kk?{k:kk,d:-sort.d}:{k:kk,d:1};render()});
   const f=filtered(),rows=f.slice(page*PAGE,page*PAGE+PAGE);
   $("tbody").innerHTML=rows.length?rows.map(r=>{const x=dd(r),de=dec[r.id];
-    return '<tr class="r'+(sel===r.id?" act":"")+'" data-id="'+esc(r.id)+'"><td>'+esc(x.vendor||"—")+'</td><td class="mono">'+esc(x.gstin)+"</td><td>"+esc(r.book?r.book.no:r.gstr.no)+"</td><td>"+x.date+'</td><td class="num">'+inr(tt(r.book))+'</td><td class="num">'+inr(tt(r.gstr))+'</td><td class="num">'+inr(r.v.totalTax)+'</td><td><span class="chip s-'+r.status+'">'+STAT[r.status]+'</span></td><td class="num">'+r.confidence+'%</td><td class="small">'+(de?de.value.replace("_"," "):"")+"</td></tr>"}).join("")
+    return '<tr class="r st-'+r.status+(sel===r.id?" act":"")+'" tabindex="0" data-id="'+esc(r.id)+'"><td>'+esc(x.vendor||"—")+'</td><td class="mono">'+esc(x.gstin)+"</td><td>"+esc(r.book?r.book.no:r.gstr.no)+"</td><td>"+x.date+'</td><td class="num">'+inr(tt(r.book))+'</td><td class="num">'+inr(tt(r.gstr))+'</td><td class="num">'+inr(r.v.totalTax)+'</td><td><span class="chip s-'+r.status+'">'+STAT[r.status]+'</span></td><td class="num">'+r.confidence+'%</td><td class="small">'+(de?de.value.replace("_"," "):"")+"</td></tr>"}).join("")
     :'<tr><td colspan="10" class="muted" style="text-align:center;padding:28px">'+(results.length?"No rows match these filters.":"No data yet. Upload files above or load the sample data.")+"</td></tr>";
-  $("tbody").querySelectorAll("tr.r").forEach(t=>t.onclick=()=>{sel=t.dataset.id;render();$("detail").scrollIntoView({block:"nearest",behavior:"smooth"})});
+  $("tbody").querySelectorAll("tr.r").forEach(t=>{const open=()=>{sel=t.dataset.id;render()};t.onclick=open;t.onkeydown=e=>{if(e.key==="Enter")open()}});
   $("count").textContent=f.length+" rows";$("pg").textContent="Page "+(page+1)+" / "+Math.max(1,Math.ceil(f.length/PAGE));
   $("prev").disabled=page===0;$("next").disabled=(page+1)*PAGE>=f.length;
   detail();
@@ -317,8 +355,8 @@ $("prev").onclick=()=>{page--;render()};$("next").onclick=()=>{page++;render()};
 
 function detail(){
   const el=$("detail"),r=results.find(x=>x.id===sel);
-  if(!r){el.hidden=true;el.innerHTML="";return}
-  el.hidden=false;const de=dec[r.id];
+  if(!r){el.hidden=true;el.innerHTML="";$("scrim").hidden=true;return}
+  el.hidden=false;$("scrim").hidden=false;const de=dec[r.id];
   const F=[["Supplier GSTIN",d=>d.gstin],["Vendor",d=>d.vendor||"—"],["Invoice no.",d=>d.no],["Date",d=>d.date],["Taxable value",d=>inr(d.taxable)],["CGST",d=>inr(d.cgst)],["SGST",d=>inr(d.sgst)],["IGST",d=>inr(d.igst)],["Cess",d=>inr(d.cess)]];
   const rows=F.map(([l,f])=>{const a=r.book?f(r.book):"—",b=r.gstr?f(r.gstr):"—",df=r.book&&r.gstr&&a!==b;return'<tr><td class="muted">'+l+'</td><td class="'+(df?"diff":"")+'">'+esc(a)+'</td><td class="'+(df?"diff":"")+'">'+esc(b)+"</td></tr>"}).join("");
   el.innerHTML='<div class="row" style="justify-content:space-between;align-items:flex-start"><div><span class="chip s-'+r.status+'">'+STAT[r.status]+'</span> <span class="small muted">Confidence '+r.confidence+'%</span><p style="margin-top:8px;max-width:70ch">'+esc(r.explanation)+'</p></div><button id="close">Close</button></div>'
@@ -360,6 +398,9 @@ $("reports").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   $("out").value=csv;copy(csv,b,REP[b.dataset.k]);
 });
 
+$("scrim").onclick=()=>{sel=null;render()};
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&sel){sel=null;render()}});
+$("emptySample").onclick=()=>$("loadSample").click();
 render();
 })();
 </script>
